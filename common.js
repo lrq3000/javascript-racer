@@ -101,6 +101,8 @@ var Game = {  // a modified version of the game loop from my previous boulderdas
 
   run: function(options) {
 
+    Game.playMusic();
+
     Game.loadImages(options.images, function(images) {
 
       options.ready(images); // tell caller to initialize itself because images are loaded and we're ready to rumble
@@ -133,7 +135,6 @@ var Game = {  // a modified version of the game loop from my previous boulderdas
         requestAnimationFrame(frame, canvas);
       }
       frame(); // lets get this party started
-      Game.playMusic();
     });
   },
 
@@ -232,15 +233,44 @@ var Game = {  // a modified version of the game loop from my previous boulderdas
 
   playMusic: function() {
     var music = Dom.get('music');
+    var mute = Dom.get('mute');
+    var activationEvents = ['keydown', 'click', 'touchend'];
+
+    function stopListening() {
+      activationEvents.forEach(function(type) { Dom.un(document, type, startMusic); });
+    }
+
+    function startMusic(event) {
+      // Let the mute control apply the player's choice before it starts playback.
+      if ((event && event.target === mute) || music.muted || !music.paused)
+        return;
+
+      var playback = music.play();
+      if (playback) {
+        playback.then(stopListening, function(error) {
+          if (error.name !== 'NotAllowedError') {
+            stopListening();
+            console.warn('Could not play the soundtrack:', error);
+          }
+        });
+      } else {
+        stopListening(); // Older browsers do not return a promise from play().
+      }
+    }
+
     music.loop = true;
     music.volume = 0.05; // shhhh! annoying music!
     music.muted = (Dom.storage.muted === "true");
-    music.play();
-    Dom.toggleClassName('mute', 'on', music.muted);
-    Dom.on('mute', 'click', function() {
+    Dom.toggleClassName(mute, 'on', music.muted);
+    Dom.on(mute, 'click', function() {
       Dom.storage.muted = music.muted = !music.muted;
-      Dom.toggleClassName('mute', 'on', music.muted);
+      Dom.toggleClassName(mute, 'on', music.muted);
+      startMusic();
     });
+
+    // Autoplay may be blocked on entry or refresh; retry within trusted player input.
+    activationEvents.forEach(function(type) { Dom.on(document, type, startMusic); });
+    startMusic();
   }
 
 }
