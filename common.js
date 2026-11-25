@@ -234,7 +234,7 @@ var Game = {  // a modified version of the game loop from my previous boulderdas
   playMusic: function() {
     var music = Dom.get('music');
     var mute = Dom.get('mute');
-    var activationEvents = ['keydown', 'click', 'touchend'];
+    var activationEvents = ['keydown', 'mousedown', 'click', 'touchend'];
 
     function stopListening() {
       activationEvents.forEach(function(type) { Dom.un(document, type, startMusic); });
@@ -242,7 +242,9 @@ var Game = {  // a modified version of the game loop from my previous boulderdas
 
     function startMusic(event) {
       // Let the mute control apply the player's choice before it starts playback.
-      if ((event && event.target === mute) || music.muted || !music.paused)
+      if (event && (event.target === mute || (event.type === 'mousedown' && event.button !== 0)))
+        return;
+      if (music.muted || !music.paused)
         return;
 
       var playback = music.play();
@@ -479,4 +481,3 @@ SPRITES.SCALE = 0.3 * (1/SPRITES.PLAYER_STRAIGHT.w) // the reference sprite widt
 SPRITES.BILLBOARDS = [SPRITES.BILLBOARD01, SPRITES.BILLBOARD02, SPRITES.BILLBOARD03, SPRITES.BILLBOARD04, SPRITES.BILLBOARD05, SPRITES.BILLBOARD06, SPRITES.BILLBOARD07, SPRITES.BILLBOARD08, SPRITES.BILLBOARD09];
 SPRITES.PLANTS     = [SPRITES.TREE1, SPRITES.TREE2, SPRITES.DEAD_TREE1, SPRITES.DEAD_TREE2, SPRITES.PALM_TREE, SPRITES.BUSH1, SPRITES.BUSH2, SPRITES.CACTUS, SPRITES.STUMP, SPRITES.BOULDER1, SPRITES.BOULDER2, SPRITES.BOULDER3];
 SPRITES.CARS       = [SPRITES.CAR01, SPRITES.CAR02, SPRITES.CAR03, SPRITES.CAR04, SPRITES.SEMI, SPRITES.TRUCK];
-

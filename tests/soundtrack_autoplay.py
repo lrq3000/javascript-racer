@@ -39,15 +39,17 @@ class SoundtrackAutoplayTest(unittest.TestCase):
 
         playwright = sync_playwright().start()
         cls.addClassCleanup(playwright.stop)
+        cls.chromium = playwright.chromium
+        cls.channel = os.environ.get("PLAYWRIGHT_CHANNEL")
         cls.browser = playwright.chromium.launch(
-            channel=os.environ.get("PLAYWRIGHT_CHANNEL"),
+            channel=cls.channel,
             args=["--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies"],
         )
         cls.addClassCleanup(cls.browser.close)
 
     @contextmanager
-    def game_page(self, **options):
-        with self.browser.new_context(**options) as context:
+    def game_page(self, browser=None, **options):
+        with (browser or self.browser).new_context(**options) as context:
             context.add_init_script("""
                 window.playbackErrors = [];
                 addEventListener('unhandledrejection', event => playbackErrors.push(event.reason.name));
@@ -99,6 +101,21 @@ class SoundtrackAutoplayTest(unittest.TestCase):
             page.locator("#canvas").click()
             self.assert_music_playing(cdp)
 
+    def test_holding_onscreen_accelerator_starts_music_before_release(self):
+        with self.game_page() as (page, cdp):
+            page.goto(self.v5, wait_until="domcontentloaded")
+            self.wait_for_audio(cdp, "music.loop && music.readyState >= 2 && music.paused")
+            accelerator = page.locator("#gamepad-up")
+            accelerator.scroll_into_view_if_needed()
+            box = accelerator.bounding_box()
+            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            page.mouse.down()
+            try:
+                self.wait_for_audio(cdp, "Number(document.getElementById('speed_value').textContent) > 0")
+                self.assert_music_playing(cdp)
+            finally:
+                page.mouse.up()
+
     def test_touch_gamepad_unlocks_music(self):
         with self.game_page(has_touch=True) as (page, cdp):
             page.goto(self.v5, wait_until="domcontentloaded")
@@ -113,6 +130,34 @@ class SoundtrackAutoplayTest(unittest.TestCase):
             page.get_by_role("link", name="out of time").click()
             page.wait_for_url(self.v5, wait_until="domcontentloaded")
             self.assert_music_playing(cdp)
+
+    def test_allowed_autoplay_respects_mute_on_load_and_reload(self):
+        browser = self.chromium.launch(channel=self.channel, args=["--autoplay-policy=no-user-gesture-required"])
+        try:
+            for muted in (False, True):
+                with self.subTest(muted=muted), self.game_page(browser) as (page, cdp):
+                    if muted:
+                        page.add_init_script("localStorage.muted = 'true';")
+                    # Prevent the first frame from rendering so playback cannot depend on loaded sprites.
+                    blocked_sprites = []
+
+                    def block_sprites(route):
+                        blocked_sprites.append(route.request.url)
+                        route.abort()
+
+                    page.route("**/images/sprites.png", block_sprites)
+                    page.goto(self.v5, wait_until="domcontentloaded")
+                    for entry in ("direct", "reload"):
+                        with self.subTest(entry=entry):
+                            if entry == "reload":
+                                page.reload(wait_until="domcontentloaded")
+                            if muted:
+                                self.wait_for_audio(cdp, "music.loop && music.readyState >= 2 && music.muted && music.paused")
+                            else:
+                                self.assert_music_playing(cdp)
+                    self.assertEqual(len(blocked_sprites), 2)
+        finally:
+            browser.close()
 
     def test_mute_is_saved_and_unmuting_starts_playback(self):
         with self.game_page() as (page, cdp):
